@@ -1,5 +1,5 @@
 // crawl
-package main
+package crawl
 
 import (
 	"io/ioutil"
@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func IsValidUrl(url string) (bool, error) {
@@ -137,7 +139,12 @@ func FindImages(html string, baseUrl *url.URL, keywords []string) []*url.URL {
 	return list
 }
 
-func ParseBody(u *url.URL) (string, error) {
+//type crawler struct {
+//	baseUrl  *url.URL
+//	keywords []string
+//}
+
+func ParseContent(u *url.URL) (string, error) {
 
 	resp, err := http.Get(u.String())
 
@@ -148,20 +155,116 @@ func ParseBody(u *url.URL) (string, error) {
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 
-	html := string(body)
+	content := string(body)
 
-	return html, err
+	return content, err
 }
 
-func main() {
+func Harvest(id int, baseUrl *url.URL, keywords []string, content <-chan string, urls chan<- *url.URL, images chan<- *url.URL, stop <-chan int) {
+
+	for {
+		log.Printf("Harvester %v entering loop", id)
+
+		select {
+		case c := <-content:
+
+			newURLs := FindUrls(c, baseUrl, keywords)
+			newIMGs := FindImages(c, baseUrl, keywords)
+
+			log.Printf("Parsed %v new URL(s) and %v image(s)", len(newURLs), len(newIMGs))
+
+			for _, u := range newURLs {
+				urls <- u
+			}
+
+			for _, i := range newIMGs {
+				images <- i
+			}
+		case <-stop:
+			log.Printf("Harvester recieved stop call. Exiting...")
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	log.Printf("Havester %v is exiting", id)
+}
+
+func Crawl(urls <-chan *url.URL, content chan<- string) {
+
+	for {
+		select {
+		case u := <-urls:
+			c, err := ParseContent(u)
+
+			log.Printf("Parsed content for [%v]", u.String())
+
+			if err != nil {
+				log.Println(err)
+			} else {
+				content <- c
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	//TODO: close content channel
+}
+
+func Collect(id int, images <-chan *url.URL, stop <-chan int) {
+
+	for {
+		log.Printf("Collector %v entering loop", id)
+
+		select {
+		case i := <-images:
+
+			p := path.Join("db/", i.Path)
+
+			if _, err := os.Stat(path.Dir(p)); os.IsNotExist(err) {
+				os.MkdirAll(path.Dir(p), 755)
+			}
+
+			resp, err := http.Get(i.String())
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			defer resp.Body.Close()
+
+			body, err := ioutil.ReadAll(resp.Body)
+
+			ioutil.WriteFile(p, body, 0755)
+
+			log.Printf("Downloaded %v, to %v", i.String(), p)
+
+			if err != nil {
+				log.Println(err)
+			}
+
+		case <-stop:
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	log.Printf("Collector %v exiting", id)
+}
+
+func house() {
 
 	params := os.Args[1:]
 
-	if len(params) < 1 {
-		log.Fatal("Requires base URL as a parameter")
+	if len(params) < 2 {
+		log.Fatal("Requires base URL as a parameter, and keywords")
 	}
 
 	validUrl, err := IsValidUrl(params[0])
+	keywords := strings.Split(params[1], ",")
 
 	if err != nil {
 		log.Fatal(err)
@@ -181,23 +284,24 @@ func main() {
 		log.Fatalf("Base URL [%v] is not absolute", baseUrl.String())
 	}
 
-	html, err := ParseBody(baseUrl)
+	log.Printf("Base URL: %v", baseUrl.String())
+	log.Printf("Keywords: %v", keywords)
 
-	if err != nil {
-		panic(err)
+	content := make(chan string, 100)
+	urls := make(chan *url.URL, 1000)
+	images := make(chan *url.URL, 1000)
+	stop := make(chan int, 1)
+	//	keywords := make([]string, 1)
+
+	urls <- baseUrl
+
+	for i := 0; i < 8; i++ {
+		go Harvest(i, baseUrl, keywords, content, urls, images, stop)
+		go Collect(i, images, stop)
 	}
 
-	urls := FindUrls(html, baseUrl, []string{})
-	imageUrls := FindImages(html, baseUrl, []string{})
-
-	log.Printf("Found %v URL(s) and %v Image(s)", len(urls), len(imageUrls))
-
-	for _, u := range urls {
-		log.Printf("URL: %v", u)
-	}
-
-	for _, u := range imageUrls {
-		log.Printf("Image: %v", u)
+	for j := 0; j < 4; j++ {
+		Crawl(urls, content)
 	}
 }
 
