@@ -226,7 +226,7 @@ func Collect(id int, imagesToDownload <-chan *url.URL, downloadedImages chan<- *
 			p := path.Join("repo/", i.Path)
 
 			if _, err := os.Stat(path.Dir(p)); os.IsNotExist(err) {
-				os.MkdirAll(path.Dir(p), 755)
+				os.MkdirAll(path.Dir(p), 0755)
 			}
 
 			resp, err := http.Get(i.String())

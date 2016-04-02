@@ -5,66 +5,61 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/boltdb/bolt"
 )
 
-var count int64 // *Error* non-declaration statement outside function body
-
-func increment() error {
-	count = count + 1
-	return nil
+type crawlCounter struct {
+	queuedImages     int64
+	queuedUrls       int64
+	downloadedImages int64
+	crawledPages     int64
 }
 
-func OperateFlow(db *bolt.DB, parsedPages, parsedImages, crawledPages, downloadedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL) {
+func OperateFlow(db *bolt.DB, parsedPages, parsedImages, crawledPages, downloadedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, ticker <-chan time.Time) {
 
-	db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("Crawl.Pages"))
-		if err != nil {
-			panic(err)
-		}
-
-		_, err = tx.CreateBucketIfNotExists([]byte("Crawl.Images"))
-		if err != nil {
-			panic(err)
-		}
-
-		return nil
-	})
+	c := crawlCounter{}
 
 	for {
 
 		select {
 		case parsedPage := <-parsedPages:
 
-			go func() {
-				crawled, err := IsPageCrawled(db, parsedPage)
-				if err != nil {
-					panic(err)
-				}
+			crawled, err := IsPageCrawled(db, parsedPage)
+			if err != nil {
+				panic(err)
+			}
 
-				if crawled == false {
-					pagesToCrawl <- parsedPage
-				}
-			}()
+			if crawled == false {
+				pagesToCrawl <- parsedPage
+				c.queuedUrls = c.queuedUrls + 1
+			}
 
 		case parsedImage := <-parsedImages:
 
-			go func() {
-				crawled, err := IsImageCrawled(db, parsedImage)
-				if err != nil {
-					panic(err)
-				}
+			crawled, err := IsImageCrawled(db, parsedImage)
+			if err != nil {
+				panic(err)
+			}
 
-				if crawled == false {
-					imagesToDownload <- parsedImage
-				}
-			}()
+			if crawled == false {
+				imagesToDownload <- parsedImage
+				c.queuedImages = c.queuedImages + 1
+			}
 
 		case crawledPage := <-crawledPages:
 			AddPage(db, crawledPage)
+			c.crawledPages = c.crawledPages + 1
+
 		case downloadedImage := <-downloadedImages:
 			AddImage(db, downloadedImage)
+			c.downloadedImages = c.downloadedImages + 1
+
+		case t := <-ticker:
+			log.Printf("Snapshot: Url(%v, %v), Image(%v, %v) @ %v",
+				c.queuedUrls, c.crawledPages, c.queuedImages, c.downloadedImages,
+				t)
 		}
 	}
 
@@ -72,7 +67,9 @@ func OperateFlow(db *bolt.DB, parsedPages, parsedImages, crawledPages, downloade
 
 func main() {
 
-	db, err := bolt.Open("idx/crawler.db", 0600, nil)
+	// param to delete prev crawling data
+
+	db, err := bolt.Open("spider.db", 0600, nil)
 
 	if err != nil {
 		log.Fatal(err)
@@ -120,14 +117,32 @@ func main() {
 
 	pagesToCrawl <- baseUrl
 
-	for i := 0; i < 4; i++ {
+	db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("Crawl.Pages"))
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = tx.CreateBucketIfNotExists([]byte("Crawl.Images"))
+		if err != nil {
+			panic(err)
+		}
+
+		return nil
+	})
+
+	ticker := time.NewTicker(time.Millisecond * 500)
+
+	for i := 0; i < 6; i++ {
 		go Crawl(pagesToCrawl, crawledPages, content)
 		go Collect(i, imagesToDownload, downloadedImages, stop)
+	}
+
+	for i := 0; i < 2; i++ {
 		go Harvest(i, baseUrl, keywords, content, parsedPages, parsedImages, stop)
 	}
 
-	OperateFlow(db, parsedPages, parsedImages, crawledPages, downloadedImages, pagesToCrawl, imagesToDownload)
-
+	OperateFlow(db, parsedPages, parsedImages, crawledPages, downloadedImages, pagesToCrawl, imagesToDownload, ticker.C)
 }
 
 //TODO: check downloaded file permission

@@ -2,4 +2,4 @@
 manga-mirror
 
 repo/
-idx/
+*.db
