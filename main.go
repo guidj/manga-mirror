@@ -10,6 +10,7 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+//TODO: package naming
 type crawlCounter struct {
 	queuedImages     int64
 	queuedUrls       int64
@@ -17,9 +18,7 @@ type crawlCounter struct {
 	crawledPages     int64
 }
 
-func OperateFlow(db *bolt.DB, parsedPages, parsedImages, crawledPages, downloadedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, ticker <-chan time.Time) {
-
-	c := crawlCounter{}
+func OperateFlow(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, c *crawlCounter) {
 
 	for {
 
@@ -32,42 +31,65 @@ func OperateFlow(db *bolt.DB, parsedPages, parsedImages, crawledPages, downloade
 			}
 
 			if crawled == false {
+				log.Printf("Trying to add [%v] to crawl queue", parsedPage.String())
 				pagesToCrawl <- parsedPage
+				log.Printf("Added [%v] to crawl queue", parsedPage.String())
 				c.queuedUrls = c.queuedUrls + 1
 			}
 
 		case parsedImage := <-parsedImages:
 
-			crawled, err := IsImageCrawled(db, parsedImage)
+			downloaded, err := IsImageCrawled(db, parsedImage)
 			if err != nil {
 				panic(err)
 			}
 
-			if crawled == false {
+			if downloaded == false {
+				log.Printf("Trying to add [%v] to download queue", parsedImage.String())
 				imagesToDownload <- parsedImage
+				log.Printf("Added [%v] to download queue", parsedImage.String())
 				c.queuedImages = c.queuedImages + 1
 			}
-
-		case crawledPage := <-crawledPages:
-			AddPage(db, crawledPage)
-			c.crawledPages = c.crawledPages + 1
-
-		case downloadedImage := <-downloadedImages:
-			AddImage(db, downloadedImage)
-			c.downloadedImages = c.downloadedImages + 1
-
-		case t := <-ticker:
-			log.Printf("Snapshot: Url(%v, %v), Image(%v, %v) @ %v",
-				c.queuedUrls, c.crawledPages, c.queuedImages, c.downloadedImages,
-				t)
 		}
 	}
 
+	log.Println("Operator is exiting")
+}
+
+func OperateNotifier(db *bolt.DB, crawledPages, downloadedImages <-chan *url.URL, c *crawlCounter) {
+
+	for {
+		select {
+		case crawledPage := <-crawledPages:
+
+			log.Printf("Trying to add [%v] to crawled pages", crawledPage.String())
+			err := AddPage(db, crawledPage)
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			log.Printf("Added [%v] to crawled pages", crawledPage.String())
+
+			c.crawledPages = c.crawledPages + 1
+
+		case downloadedImage := <-downloadedImages:
+
+			log.Printf("Trying to add [%v] to downloaded images", downloadedImage.String())
+			err := AddImage(db, downloadedImage)
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			log.Printf("Added [%v] to downloaded images", downloadedImage.String())
+
+			c.downloadedImages = c.downloadedImages + 1
+		}
+	}
 }
 
 func main() {
-
-	// param to delete prev crawling data
 
 	db, err := bolt.Open("spider.db", 0600, nil)
 
@@ -115,6 +137,9 @@ func main() {
 	downloadedImages := make(chan *url.URL, 1000)
 	stop := make(chan int, 1)
 
+	c := new(crawlCounter)
+	ticker := time.NewTicker(time.Millisecond * 500)
+
 	pagesToCrawl <- baseUrl
 
 	db.Update(func(tx *bolt.Tx) error {
@@ -131,19 +156,24 @@ func main() {
 		return nil
 	})
 
-	ticker := time.NewTicker(time.Millisecond * 500)
-
 	for i := 0; i < 6; i++ {
 		go Crawl(pagesToCrawl, crawledPages, content)
-		go Collect(i, imagesToDownload, downloadedImages, stop)
+		go Collect(i+1, imagesToDownload, downloadedImages, stop)
+		go OperateFlow(db, parsedPages, parsedImages, pagesToCrawl, imagesToDownload, c)
 	}
 
 	for i := 0; i < 2; i++ {
-		go Harvest(i, baseUrl, keywords, content, parsedPages, parsedImages, stop)
+		go Harvest(i+1, baseUrl, keywords, content, parsedPages, parsedImages, stop)
 	}
 
-	OperateFlow(db, parsedPages, parsedImages, crawledPages, downloadedImages, pagesToCrawl, imagesToDownload, ticker.C)
-}
+	go func() {
 
-//TODO: check downloaded file permission
-//TODO: packaging
+		for t := range ticker.C {
+			log.Printf("Snapshot: Url(%v, %v), Image(%v, %v) @ %v",
+				c.queuedUrls, c.crawledPages, c.queuedImages, c.downloadedImages,
+				t)
+		}
+	}()
+
+	OperateNotifier(db, crawledPages, downloadedImages, c)
+}

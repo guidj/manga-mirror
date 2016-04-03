@@ -139,17 +139,14 @@ func FindImages(html string, baseUrl *url.URL, keywords []string) []*url.URL {
 	return list
 }
 
-//type crawler struct {
-//	baseUrl  *url.URL
-//	keywords []string
-//}
-
 func ParseContent(u *url.URL) (string, error) {
 
 	resp, err := http.Get(u.String())
 
 	if err != nil {
-		panic(err)
+		log.Println(err)
+
+		return string(""), err
 	}
 
 	defer resp.Body.Close()
@@ -174,11 +171,15 @@ func Harvest(id int, baseUrl *url.URL, keywords []string, content <-chan string,
 			log.Printf("Parsed %v new URL(s) and %v image(s)", len(newURLs), len(newIMGs))
 
 			for _, u := range newURLs {
+				log.Printf("Trying to add [%v] to parsed pages", u.String())
 				parsedPages <- u
+				log.Printf("Added [%v] to parsed pages", u.String())
 			}
 
 			for _, i := range newIMGs {
+				log.Printf("Trying to add [%v] to parsed images", i.String())
 				parsedImages <- i
+				log.Printf("Adding [%v] to parsed images", i.String())
 			}
 		case <-stop:
 			log.Printf("Harvester recieved stop call. Exiting...")
@@ -202,17 +203,22 @@ func Crawl(pagesToCrawl <-chan *url.URL, crawledPages chan<- *url.URL, content c
 
 			if err != nil {
 				log.Println(err)
+			} else {
+
+				log.Printf("Trying to add html from [%v] to content", u.String())
+				content <- c
+				log.Printf("Added html from [%v] to content", u.String())
+
+				log.Printf("Trying to add [%v] to crawled pages", u.String())
+				crawledPages <- u
+				log.Printf("Added [%v] to crawled pages", u.String())
 			}
 
-			content <- c
-
-			crawledPages <- u
+			//TODO: deal with failed crawls
 		}
 
 		time.Sleep(500 * time.Millisecond)
 	}
-
-	//TODO: close content channel
 }
 
 func Collect(id int, imagesToDownload <-chan *url.URL, downloadedImages chan<- *url.URL, stop <-chan int) {
@@ -233,21 +239,23 @@ func Collect(id int, imagesToDownload <-chan *url.URL, downloadedImages chan<- *
 
 			if err != nil {
 				log.Println(err)
+			} else {
+
+				defer resp.Body.Close()
+
+				body, err := ioutil.ReadAll(resp.Body)
+
+				ioutil.WriteFile(p, body, 0755)
+
+				log.Printf("Downloaded %v, to %v", i.String(), p)
+
+				if err != nil {
+					log.Println(err)
+				}
+
+				//TODO: add to failure list/queue
+				downloadedImages <- i
 			}
-
-			defer resp.Body.Close()
-
-			body, err := ioutil.ReadAll(resp.Body)
-
-			ioutil.WriteFile(p, body, 0755)
-
-			log.Printf("Downloaded %v, to %v", i.String(), p)
-
-			if err != nil {
-				log.Println(err)
-			}
-
-			downloadedImages <- i
 
 		case <-stop:
 			return

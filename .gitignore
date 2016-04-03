@@ -3,3 +3,4 @@ manga-mirror
 
 repo/
 *.db
+*.log
