@@ -1,10 +1,10 @@
-package main
+package utils
 
 import (
 	"net/url"
 	"strconv"
 	"time"
-
+	
 	"github.com/boltdb/bolt"
 )
 

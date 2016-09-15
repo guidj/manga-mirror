@@ -6,9 +6,10 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/boltdb/bolt"
 )
+
+import "github.com/boltdb/bolt"
+import "github.com/guidj/mangamirror/utils"
 
 //TODO: package naming
 type crawlCounter struct {
@@ -18,14 +19,14 @@ type crawlCounter struct {
 	crawledPages     int64
 }
 
-func OperateFlow(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, c *crawlCounter) {
+func ManageQueues(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, c *crawlCounter) {
 
 	for {
 
 		select {
 		case parsedPage := <-parsedPages:
 
-			crawled, err := IsPageCrawled(db, parsedPage)
+			crawled, err := utils.IsPageCrawled(db, parsedPage)
 			if err != nil {
 				panic(err)
 			}
@@ -39,7 +40,7 @@ func OperateFlow(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesTo
 
 		case parsedImage := <-parsedImages:
 
-			downloaded, err := IsImageCrawled(db, parsedImage)
+			downloaded, err := utils.IsImageCrawled(db, parsedImage)
 			if err != nil {
 				panic(err)
 			}
@@ -63,7 +64,7 @@ func OperateNotifier(db *bolt.DB, crawledPages, downloadedImages <-chan *url.URL
 		case crawledPage := <-crawledPages:
 
 			log.Printf("Trying to add [%v] to crawled pages", crawledPage.String())
-			err := AddPage(db, crawledPage)
+			err := utils.AddPage(db, crawledPage)
 
 			if err != nil {
 				log.Println(err)
@@ -76,7 +77,7 @@ func OperateNotifier(db *bolt.DB, crawledPages, downloadedImages <-chan *url.URL
 		case downloadedImage := <-downloadedImages:
 
 			log.Printf("Trying to add [%v] to downloaded images", downloadedImage.String())
-			err := AddImage(db, downloadedImage)
+			err := utils.AddImage(db, downloadedImage)
 
 			if err != nil {
 				log.Println(err)
@@ -104,7 +105,7 @@ func main() {
 		log.Fatal("Requires base URL as a parameter, and keywords")
 	}
 
-	validUrl, err := IsValidUrl(params[0])
+	validUrl, err := utils.IsValidUrl(params[0])
 	keywords := strings.Split(params[1], ",")
 
 	if err != nil {
@@ -157,13 +158,14 @@ func main() {
 	})
 
 	for i := 0; i < 6; i++ {
-		go Crawl(pagesToCrawl, crawledPages, content)
-		go Collect(i+1, imagesToDownload, downloadedImages, stop)
-		go OperateFlow(db, parsedPages, parsedImages, pagesToCrawl, imagesToDownload, c)
+		go utils.Crawl(pagesToCrawl, crawledPages, content)
+		go utils.Collect(i+1, imagesToDownload, downloadedImages, stop)
 	}
 
+	go ManageQueues(db, parsedPages, parsedImages, pagesToCrawl, imagesToDownload, c)
+
 	for i := 0; i < 2; i++ {
-		go Harvest(i+1, baseUrl, keywords, content, parsedPages, parsedImages, stop)
+		go utils.Harvest(i+1, baseUrl, keywords, content, parsedPages, parsedImages, stop)
 	}
 
 	go func() {
@@ -175,5 +177,6 @@ func main() {
 		}
 	}()
 
+	//TODO: wait for harvesters to finish
 	OperateNotifier(db, crawledPages, downloadedImages, c)
 }

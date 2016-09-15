@@ -1,6 +1,7 @@
 .project
-manga-mirror
+mangamirror
 
+bin/
 repo/
 *.db
 *.log

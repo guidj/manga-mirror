@@ -1,5 +1,4 @@
-// crawl
-package main
+package utils
 
 import (
 	"io/ioutil"
@@ -14,6 +13,7 @@ import (
 )
 
 func IsValidUrl(url string) (bool, error) {
+
 	pattern := "(@)?(href=')?(HREF=')?(HREF=\")?(href=\")?(http[s]?://)?[a-zA-Z_0-9\\-]+(\\.\\w[a-zA-Z_0-9\\-]+)+(/[#&\\n\\-=?\\+\\%/\\.\\w]+)?"
 
 	valid, err := regexp.MatchString(pattern, url)
@@ -21,6 +21,7 @@ func IsValidUrl(url string) (bool, error) {
 	return valid, err
 }
 
+//TODO: refactor, use regex, and func to extract actual content, e.g. src
 func FindUrls(html string, baseUrl *url.URL, keywords []string) []*url.URL {
 
 	index := strings.Index(html, "href")
@@ -78,6 +79,10 @@ func FindUrls(html string, baseUrl *url.URL, keywords []string) []*url.URL {
 	return list
 }
 
+// FindImages parses a string to find html img elements.
+// A base url can be used to append the URL when absolute paths are used.
+// Keywords can also be passed to match the absolute path of the url. All keywords will be checked, and the image should contain all of them
+// TODO: Support different keyword groups
 func FindImages(html string, baseUrl *url.URL, keywords []string) []*url.URL {
 
 	index := strings.Index(html, "<img")
@@ -189,6 +194,7 @@ func Harvest(id int, baseUrl *url.URL, keywords []string, content <-chan string,
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	//TODO: call this when a signal is received to stop the loop
 	log.Printf("Havester %v is exiting", id)
 }
 
@@ -264,6 +270,7 @@ func Collect(id int, imagesToDownload <-chan *url.URL, downloadedImages chan<- *
 		time.Sleep(500 * time.Millisecond)
 	}
 
+	//TODO: call this when a signal is received to stop the loop
 	log.Printf("Collector %v exiting", id)
 }
 
