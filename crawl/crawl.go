@@ -13,19 +13,6 @@ import (
 	"time"
 )
 
-type CrawlerChannel struct {
-	Uri chan *url.URL
-	Img chan *url.URL
-	//	uri int64 <- lock issues. better to have a channel to receive a counter and increment or decrement it with a lock? atomic counters vs mutexes
-}
-
-func NewCrawlerChannel(size int64) (cc *CrawlerChannel) {
-	cc = new(CrawlerChannel)
-	cc.Uri = make(chan *url.URL, size)
-	cc.Img = make(chan *url.URL, size)
-	return
-}
-
 func ParseElementValues(html, tag, element string) []string {
 	stf := fmt.Sprint(`<`, tag, `[^>]+`, element)
 	pattern := fmt.Sprintf(`%v\s*=\s*'(.*?)'|%v\s*=\s*"(.*?)"`, stf, stf)

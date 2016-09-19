@@ -13,8 +13,6 @@ import "github.com/guidj/mangamirror/storage"
 import "github.com/guidj/mangamirror/crawl"
 import "github.com/guidj/mangamirror/utils"
 
-//TODO: structs for queues: new, waiting, done
-//TODO: package naming
 type crawlCounter struct {
 	//imageIn  int64
 	//urlIn    int64
@@ -22,14 +20,30 @@ type crawlCounter struct {
 	//urlOut   int64
 }
 
-//ManageQueues handles flow of data between waiting and processed queues for URLs and Images
-func ManageQueues(db *bolt.DB, newQueue, waitQueue *crawl.CrawlerChannel) {
+type CrawlerQueue struct {
+	Uri chan *url.URL
+	Img chan *url.URL
+	//	uri int64 <- lock issues. better to have a channel to receive a counter and increment or decrement it with a lock? atomic counters vs mutexes
+}
 
-	//TODO: declare uri and img outside?
+//NewCrawlerQueue creates and returns an instance of a CrawlerQueue
+func NewCrawlerQueue(size int64) (cq *CrawlerQueue) {
+	cq = new(CrawlerQueue)
+	cq.Uri = make(chan *url.URL, size)
+	cq.Img = make(chan *url.URL, size)
+	return
+}
+
+//ManageQueues handles flow of data between waiting and processed queues for URLs and Images
+func ManageQueues(db *bolt.DB, newQueue, waitQueue *CrawlerQueue) {
+
+	var uri *url.URL
+	var img *url.URL
+
 	for {
 
 		select {
-		case uri := <-newQueue.Uri:
+		case uri = <-newQueue.Uri:
 			crawled, err := storage.Exists(db, uri.String())
 			if err != nil {
 				panic(err)
@@ -42,7 +56,7 @@ func ManageQueues(db *bolt.DB, newQueue, waitQueue *crawl.CrawlerChannel) {
 				//c.urlIn += 1
 			}
 
-		case img := <-newQueue.Img:
+		case img = <-newQueue.Img:
 
 			downloaded, err := storage.Exists(db, img.String())
 			if err != nil {
@@ -61,11 +75,14 @@ func ManageQueues(db *bolt.DB, newQueue, waitQueue *crawl.CrawlerChannel) {
 	log.Println("Operator is exiting")
 }
 
-func OperateNotifier(db *bolt.DB, doneQueue *crawl.CrawlerChannel) {
+//OperateNotifier tracks processed URL (for images and pages) and saves them to the index (storage)
+func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 
+	var uri *url.URL
+	var img *url.URL
 	for {
 		select {
-		case uri := <-doneQueue.Uri:
+		case uri = <-doneQueue.Uri:
 
 			err := storage.Save(db, uri.String())
 
@@ -77,7 +94,7 @@ func OperateNotifier(db *bolt.DB, doneQueue *crawl.CrawlerChannel) {
 
 			//c.urlOut += 1
 
-		case img := <-doneQueue.Uri:
+		case img = <-doneQueue.Uri:
 
 			err := storage.Save(db, img.String())
 
@@ -93,9 +110,6 @@ func OperateNotifier(db *bolt.DB, doneQueue *crawl.CrawlerChannel) {
 }
 
 func main() {
-	//TODO: parse flags
-	//TODO: unit queues into struct
-	//TODO: close channels, and end workers when exit/stop SIG is received
 
 	var flDir string
 	var flDb string
@@ -147,16 +161,13 @@ func main() {
 	log.Printf("Domain: %v", domain.String())
 	log.Printf("Keywords: %v", keywords)
 
-	//TODO: pass url by value (use value channels instead of pointers)
 	var chSize int64 = 1000
 	content := make(chan string, chSize)
-	newQueue, waitQueue, doneQueue := crawl.NewCrawlerChannel(chSize), crawl.NewCrawlerChannel(chSize), crawl.NewCrawlerChannel(chSize)
+	newQueue, waitQueue, doneQueue := NewCrawlerQueue(chSize), NewCrawlerQueue(chSize), NewCrawlerQueue(chSize)
 
 	nCrawlers, nDownloaders, nHarversters := 6, 6, 3
 	nWorkers := nCrawlers * nDownloaders * nHarversters
 
-	//stop := make([]chan int, nWorkers)
-	//TODO: n workers, n signals, 1 for each, 1 channel
 	stop := make(chan int, nWorkers)
 
 	//c := new(crawlCounter)
@@ -184,7 +195,8 @@ func main() {
 		}
 	}()
 
-	//TODO: wait for harvesters to finish
 	OperateNotifier(db, doneQueue)
-
 }
+
+//TODO: close channels, and end workers when exit/stop SIG is received
+//TODO: count events? query db, or keep tabs on channels?
