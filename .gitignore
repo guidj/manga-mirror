@@ -2,6 +2,6 @@
 mangamirror
 
 bin/
-repo/
-*.db
+media/
+.*
 *.log

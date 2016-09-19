@@ -1,55 +1,59 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
 
 import "github.com/boltdb/bolt"
+import "github.com/guidj/mangamirror/storage"
+import "github.com/guidj/mangamirror/crawl"
 import "github.com/guidj/mangamirror/utils"
 
+//TODO: structs for queues: new, waiting, done
 //TODO: package naming
 type crawlCounter struct {
-	queuedImages     int64
-	queuedUrls       int64
-	downloadedImages int64
-	crawledPages     int64
+	//imageIn  int64
+	//urlIn    int64
+	//imageOut int64
+	//urlOut   int64
 }
 
-func ManageQueues(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesToCrawl, imagesToDownload chan<- *url.URL, c *crawlCounter) {
+//ManageQueues handles flow of data between waiting and processed queues for URLs and Images
+func ManageQueues(db *bolt.DB, newQueue, waitQueue *crawl.CrawlerChannel) {
 
+	//TODO: declare uri and img outside?
 	for {
 
 		select {
-		case parsedPage := <-parsedPages:
-
-			crawled, err := utils.IsPageCrawled(db, parsedPage)
+		case uri := <-newQueue.Uri:
+			crawled, err := storage.Exists(db, uri.String())
 			if err != nil {
 				panic(err)
 			}
 
 			if crawled == false {
-				log.Printf("Trying to add [%v] to crawl queue", parsedPage.String())
-				pagesToCrawl <- parsedPage
-				log.Printf("Added [%v] to crawl queue", parsedPage.String())
-				c.queuedUrls = c.queuedUrls + 1
+				//log.Printf("Trying to add [%v] to crawl queue", uri.String())
+				waitQueue.Uri <- uri
+				log.Printf("Added [%v] to crawl queue", uri.String())
+				//c.urlIn += 1
 			}
 
-		case parsedImage := <-parsedImages:
+		case img := <-newQueue.Img:
 
-			downloaded, err := utils.IsImageCrawled(db, parsedImage)
+			downloaded, err := storage.Exists(db, img.String())
 			if err != nil {
 				panic(err)
 			}
 
 			if downloaded == false {
-				log.Printf("Trying to add [%v] to download queue", parsedImage.String())
-				imagesToDownload <- parsedImage
-				log.Printf("Added [%v] to download queue", parsedImage.String())
-				c.queuedImages = c.queuedImages + 1
+				//log.Printf("Trying to add [%v] to download queue", img.String())
+				waitQueue.Img <- img
+				log.Printf("Added [%v] to download queue", img.String())
+				//c.imageIn += 1
 			}
 		}
 	}
@@ -57,126 +61,130 @@ func ManageQueues(db *bolt.DB, parsedPages, parsedImages <-chan *url.URL, pagesT
 	log.Println("Operator is exiting")
 }
 
-func OperateNotifier(db *bolt.DB, crawledPages, downloadedImages <-chan *url.URL, c *crawlCounter) {
+func OperateNotifier(db *bolt.DB, doneQueue *crawl.CrawlerChannel) {
 
 	for {
 		select {
-		case crawledPage := <-crawledPages:
+		case uri := <-doneQueue.Uri:
 
-			log.Printf("Trying to add [%v] to crawled pages", crawledPage.String())
-			err := utils.AddPage(db, crawledPage)
-
-			if err != nil {
-				log.Println(err)
-			}
-
-			log.Printf("Added [%v] to crawled pages", crawledPage.String())
-
-			c.crawledPages = c.crawledPages + 1
-
-		case downloadedImage := <-downloadedImages:
-
-			log.Printf("Trying to add [%v] to downloaded images", downloadedImage.String())
-			err := utils.AddImage(db, downloadedImage)
+			err := storage.Save(db, uri.String())
 
 			if err != nil {
 				log.Println(err)
 			}
 
-			log.Printf("Added [%v] to downloaded images", downloadedImage.String())
+			log.Printf("Added [%v] to crawled pages", uri.String())
 
-			c.downloadedImages = c.downloadedImages + 1
+			//c.urlOut += 1
+
+		case img := <-doneQueue.Uri:
+
+			err := storage.Save(db, img.String())
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			log.Printf("Added [%v] to downloaded images", img.String())
+
+			//c.imageOut += 1
 		}
 	}
 }
 
 func main() {
+	//TODO: parse flags
+	//TODO: unit queues into struct
+	//TODO: close channels, and end workers when exit/stop SIG is received
 
-	db, err := bolt.Open("spider.db", 0600, nil)
+	var flDir string
+	var flDb string
+	var flDomain string
+
+	func() {
+		flag.StringVar(&flDir, "dir", "media", "Path to store downloaded media")
+		flag.StringVar(&flDb, "db", ".mrdb", "Path for crawler sync index")
+		flag.StringVar(&flDomain, "domain", "", "Web URL to crawl for media")
+
+		flag.Parse()
+
+		if len(flDomain) == 0 {
+			log.Fatal("Domain is required")
+		}
+
+		validUrl, err := utils.IsValidUrl(flDomain)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if validUrl == false {
+			log.Fatalf("Invalid base URL [%v]", flDomain)
+		}
+	}()
+
+	db, err := bolt.Open(flDb, 0600, nil)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	params := os.Args[1:]
+	storage.Init(db)
 
-	if len(params) < 2 {
-		log.Fatal("Requires base URL as a parameter, and keywords")
-	}
-
-	validUrl, err := utils.IsValidUrl(params[0])
-	keywords := strings.Split(params[1], ",")
+	domain, err := url.Parse(flDomain)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if validUrl == false {
-		log.Fatalf("Invalid base URL [%v]", params[0])
+	if domain.IsAbs() == false {
+		log.Fatalf("Domain URL [%v] is not absolute", domain.String())
 	}
 
-	baseUrl, err := url.Parse(params[0])
+	keywords := strings.Split("", ",")
 
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if baseUrl.IsAbs() == false {
-		log.Fatalf("Base URL [%v] is not absolute", baseUrl.String())
-	}
-
-	log.Printf("Base URL: %v", baseUrl.String())
+	log.Printf("Domain: %v", domain.String())
 	log.Printf("Keywords: %v", keywords)
 
-	content := make(chan string, 1000)
-	parsedPages := make(chan *url.URL, 1000)
-	parsedImages := make(chan *url.URL, 1000)
-	pagesToCrawl := make(chan *url.URL, 1000)
-	imagesToDownload := make(chan *url.URL, 1000)
-	crawledPages := make(chan *url.URL, 1000)
-	downloadedImages := make(chan *url.URL, 1000)
-	stop := make(chan int, 1)
+	//TODO: pass url by value (use value channels instead of pointers)
+	var chSize int64 = 1000
+	content := make(chan string, chSize)
+	newQueue, waitQueue, doneQueue := crawl.NewCrawlerChannel(chSize), crawl.NewCrawlerChannel(chSize), crawl.NewCrawlerChannel(chSize)
 
-	c := new(crawlCounter)
-	ticker := time.NewTicker(time.Millisecond * 500)
+	nCrawlers, nDownloaders, nHarversters := 6, 6, 3
+	nWorkers := nCrawlers * nDownloaders * nHarversters
 
-	pagesToCrawl <- baseUrl
+	//stop := make([]chan int, nWorkers)
+	//TODO: n workers, n signals, 1 for each, 1 channel
+	stop := make(chan int, nWorkers)
 
-	db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("Crawl.Pages"))
-		if err != nil {
-			panic(err)
-		}
+	//c := new(crawlCounter)
+	ticker := time.NewTicker(time.Millisecond * 5000)
 
-		_, err = tx.CreateBucketIfNotExists([]byte("Crawl.Images"))
-		if err != nil {
-			panic(err)
-		}
-
-		return nil
-	})
+	newQueue.Uri <- domain
 
 	for i := 0; i < 6; i++ {
-		go utils.Crawl(pagesToCrawl, crawledPages, content)
-		go utils.Collect(i+1, imagesToDownload, downloadedImages, stop)
+		go crawl.Crawl(waitQueue.Uri, doneQueue.Uri, content, stop)
+		go crawl.Download(i+1, flDir, waitQueue.Img, doneQueue.Img, stop)
 	}
 
-	go ManageQueues(db, parsedPages, parsedImages, pagesToCrawl, imagesToDownload, c)
+	go ManageQueues(db, newQueue, waitQueue)
 
-	for i := 0; i < 2; i++ {
-		go utils.Harvest(i+1, baseUrl, keywords, content, parsedPages, parsedImages, stop)
+	for i := 0; i < nHarversters; i++ {
+		go crawl.Harvest(i+1, domain, keywords, content, newQueue.Uri, newQueue.Img, stop)
 	}
 
 	go func() {
 
 		for t := range ticker.C {
-			log.Printf("Snapshot: Url(%v, %v), Image(%v, %v) @ %v",
-				c.queuedUrls, c.crawledPages, c.queuedImages, c.downloadedImages,
-				t)
+			//log.Printf("Snapshot: Url(%v, %v), Image(%v, %v) @ %v",
+			//	c.urlIn, c.urlOut, c.imageIn, c.imageOut, t)
+			log.Printf("Heartbeat @ %v", t)
 		}
 	}()
 
 	//TODO: wait for harvesters to finish
-	OperateNotifier(db, crawledPages, downloadedImages, c)
+	OperateNotifier(db, doneQueue)
+
 }
