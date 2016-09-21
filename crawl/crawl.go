@@ -22,7 +22,7 @@ func ParseElementValues(html, tag, element string) []string {
 	values := make([]string, len(elements))
 
 	for i, v := range elements {
-		values[i] = strings.TrimSpace(v[2])
+		values[i] = strings.TrimSpace(v[len(v)-1])
 	}
 
 	return values
@@ -57,11 +57,7 @@ func MakeURIParser(tag, element string, domain *url.URL) func(html string) []*ur
 	}
 }
 
-//TODO: create helper that generates a function based on a tag and element to create URL objects from returned values for images and links
-
 //TODO: is it better to pass data in channels by copying (less memory sharing)? (applies to domain as well)
-
-//TODO: refactor, use regex, and func to extract actual content, e.g. src
 
 func ParseContent(u *url.URL) (string, error) {
 
@@ -90,11 +86,13 @@ func Harvest(id int, domain *url.URL, keywords []string, content <-chan string, 
 	var mParseURLs = MakeURIParser("a", "href", domain)
 	var mParseImages = MakeURIParser("img", "src", domain)
 
+	var c string
+
 	for {
 		log.Printf("Harvester %v entering loop", id)
 
 		select {
-		case c := <-content:
+		case c = <-content:
 
 			//newURLs := FindUrls(c, domain, keywords)
 			//newIMGs := FindImages(c, domain, keywords)
@@ -130,9 +128,10 @@ func Harvest(id int, domain *url.URL, keywords []string, content <-chan string, 
 //Crawl parses URLs from a input queue, places the content in a content queue, and places the URL on an ouput queue
 func Crawl(inQueue <-chan *url.URL, outQueue chan<- *url.URL, content chan<- string, stop <-chan int) {
 
+	var u *url.URL
 	for {
 		select {
-		case u := <-inQueue:
+		case u = <-inQueue:
 			c, err := ParseContent(u)
 
 			log.Printf("Parsed content for [%v]", u.String())
@@ -168,9 +167,11 @@ func Download(id int, dir string, inQueue <-chan *url.URL, outQueue chan<- *url.
 
 	log.Printf("Collector %v entering loop", id)
 
+	var i *url.URL
+
 	for {
 		select {
-		case i := <-inQueue:
+		case i = <-inQueue:
 			//TODO: get data dir as a param from user running program
 			p := path.Join(dir, i.Path)
 
