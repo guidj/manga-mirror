@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 	"net/url"
+	"os"
 	"time"
 )
 
@@ -43,27 +44,32 @@ func ManageQueues(db *bolt.DB, newQueue, waitQueue *CrawlerQueue) {
 
 		select {
 		case uri = <-newQueue.Uri:
-			crawled, err := storage.Exists(db, uri.String())
+			val, err := storage.Get(db, uri.String())
 			if err != nil {
 				panic(err)
 			}
 
-			if crawled == false {
+			if val == "" {
 				//log.Printf("Trying to add [%v] to crawl queue", uri.String())
+				storage.Save(db, uri.String(), "INQ")
 				waitQueue.Uri <- uri
 				log.Printf("Added [%v] to crawl queue", uri.String())
 				//c.urlIn += 1
 			}
+			//else if val == "INQ" {
+			//do nothing
+			//}
 
 		case img = <-newQueue.Img:
 
-			downloaded, err := storage.Exists(db, img.String())
+			val, err := storage.Get(db, img.String())
 			if err != nil {
 				panic(err)
 			}
 
-			if downloaded == false {
+			if val == "" {
 				//log.Printf("Trying to add [%v] to download queue", img.String())
+				storage.Save(db, img.String(), "INQ")
 				waitQueue.Img <- img
 				log.Printf("Added [%v] to download queue", img.String())
 				//c.imageIn += 1
@@ -83,7 +89,7 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 		select {
 		case uri = <-doneQueue.Uri:
 
-			err := storage.Save(db, uri.String())
+			err := storage.Save(db, uri.String(), "DONE")
 
 			if err != nil {
 				log.Println(err)
@@ -93,9 +99,9 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 
 			//c.urlOut += 1
 
-		case img = <-doneQueue.Uri:
+		case img = <-doneQueue.Img:
 
-			err := storage.Save(db, img.String())
+			err := storage.Save(db, img.String(), "DONE")
 
 			if err != nil {
 				log.Println(err)
@@ -109,6 +115,16 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 }
 
 func main() {
+
+	f, err := os.OpenFile("mgreader.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Error opening file: %v", err)
+	}
+
+	defer f.Close()
+
+	log.SetOutput(f)
+	log.Println("Initianting...")
 
 	var flDir = flag.String("directory", "_media", "Path to store downlaoded media")
 	var flDb = flag.String("database", "_mrdb", "Path for crawler sync index")
@@ -176,8 +192,11 @@ func main() {
 
 	newQueue.Uri <- domain
 
-	for i := 0; i < 6; i++ {
-		go crawl.Crawl(waitQueue.Uri, doneQueue.Uri, content, stop)
+	for i := 0; i < nCrawlers; i++ {
+		go crawl.Crawl(i+1, waitQueue.Uri, doneQueue.Uri, content, stop)
+	}
+
+	for i := 0; i < nDownloaders; i++ {
 		go crawl.Download(i+1, *flDir, waitQueue.Img, doneQueue.Img, stop)
 	}
 
@@ -201,3 +220,4 @@ func main() {
 
 //TODO: close channels, and end workers when exit/stop SIG is received
 //TODO: count events? query db, or keep tabs on channels?
+//TODO: waiting queue: just because an item is there, it doesn't mean it should be re-added

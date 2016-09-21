@@ -1,9 +1,6 @@
 package storage
 
 import (
-	"strconv"
-	"time"
-
 	"github.com/boltdb/bolt"
 )
 
@@ -22,12 +19,25 @@ func Init(db *bolt.DB) {
 
 //TODO: accept value
 //Save stores a key in the data store, with the current Unix timestamp
-func Save(db *bolt.DB, key string) (err error) {
+func Save(db *bolt.DB, key string, value string) (err error) {
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(DB_BUCKET))
-		err := b.Put([]byte(key), []byte(strconv.FormatInt(time.Now().Unix(), 10)))
+		err := b.Put([]byte(key), []byte(value))
 		return err
+	})
+
+	return
+}
+
+//Get reads an item from the data store
+func Get(db *bolt.DB, key string) (value string, err error) {
+
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(DB_BUCKET))
+		value = string(b.Get([]byte(key)))
+
+		return nil
 	})
 
 	return
@@ -44,10 +54,6 @@ func Exists(db *bolt.DB, key string) (exists bool, err error) {
 
 		return nil
 	})
-
-	//if err != nil {
-	//	return false, err
-	//}
 
 	return
 }

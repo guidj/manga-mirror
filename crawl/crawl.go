@@ -132,7 +132,7 @@ func Harvest(id int, domain *url.URL, filterPattern string, content <-chan strin
 }
 
 //Crawl parses URLs from a input queue, places the content in a content queue, and places the URL on an ouput queue
-func Crawl(inQueue <-chan *url.URL, outQueue chan<- *url.URL, content chan<- string, stop <-chan int) {
+func Crawl(id int, inQueue <-chan *url.URL, outQueue chan<- *url.URL, content chan<- string, stop <-chan int) {
 
 	var u *url.URL
 	for {
@@ -140,7 +140,7 @@ func Crawl(inQueue <-chan *url.URL, outQueue chan<- *url.URL, content chan<- str
 		case u = <-inQueue:
 			c, err := ParseContent(u)
 
-			log.Printf("Parsed content for [%v]", u.String())
+			log.Printf("Crawler [%v] parsed content for [%v]", id, u.String())
 
 			if err != nil {
 				log.Println(err)
@@ -148,11 +148,11 @@ func Crawl(inQueue <-chan *url.URL, outQueue chan<- *url.URL, content chan<- str
 
 				//log.Printf("Trying to add html from [%v] to content", u.String())
 				content <- c
-				log.Printf("Added html from [%v] to content", u.String())
+				log.Printf("Cralwer [%v] added html from [%v] to content", id, u.String())
 
 				//log.Printf("Trying to add [%v] to crawled pages", u.String())
 				outQueue <- u
-				log.Printf("Added [%v] to crawled pages", u.String())
+				log.Printf("Crawler [%v] added [%v] to crawled pages", id, u.String())
 			}
 
 			//TODO: deal with failed crawls
@@ -197,7 +197,7 @@ func Download(id int, dir string, inQueue <-chan *url.URL, outQueue chan<- *url.
 
 				ioutil.WriteFile(p, body, 0755)
 
-				log.Printf("Downloaded %v, to %v", i.String(), p)
+				log.Printf("Downloader [%v] downlaoded %v, to %v", id, i.String(), p)
 
 				if err != nil {
 					log.Println(err)
