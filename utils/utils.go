@@ -1,6 +1,8 @@
 package utils
 
-import "regexp"
+import (
+	"regexp"
+)
 
 //IsValidUrl checks if a string is a valid URL
 func IsValidUrl(url string) (valid bool, err error) {
@@ -10,4 +12,12 @@ func IsValidUrl(url string) (valid bool, err error) {
 	valid, err = regexp.MatchString(pattern, url)
 
 	return
+}
+
+func MakeRegexMatcher(regex string) func(text string) bool {
+	re := regexp.MustCompile(regex)
+
+	return func(text string) bool {
+		return re.MatchString(text)
+	}
 }

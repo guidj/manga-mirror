@@ -4,14 +4,13 @@ import (
 	"flag"
 	"log"
 	"net/url"
-	"strings"
 	"time"
 )
 
 import "github.com/boltdb/bolt"
-import "github.com/guidj/mangamirror/storage"
-import "github.com/guidj/mangamirror/crawl"
-import "github.com/guidj/mangamirror/utils"
+import "github.com/guidj/manga-mirror/storage"
+import "github.com/guidj/manga-mirror/crawl"
+import "github.com/guidj/manga-mirror/utils"
 
 type crawlCounter struct {
 	//imageIn  int64
@@ -111,33 +110,35 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 
 func main() {
 
-	var flDir string
-	var flDb string
-	var flDomain string
+	var flDir = flag.String("directory", "_media", "Path to store downlaoded media")
+	var flDb = flag.String("database", "_mrdb", "Path for crawler sync index")
+	var flDomain = flag.String("domain", "", "Web URL to crawl for media")
+	var flFilterRegex = flag.String("filter-regex", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
 
 	func() {
-		flag.StringVar(&flDir, "dir", "media", "Path to store downloaded media")
-		flag.StringVar(&flDb, "db", ".mrdb", "Path for crawler sync index")
-		flag.StringVar(&flDomain, "domain", "", "Web URL to crawl for media")
+		flag.StringVar(flDir, "dir", "_media", "Path to store downloaded media")
+		flag.StringVar(flDb, "db", "_mgreaderdb", "Path for crawler sync index")
+		flag.StringVar(flDomain, "url", "", "Web URL to crawl for media")
+		flag.StringVar(flFilterRegex, "f", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
 
 		flag.Parse()
 
-		if len(flDomain) == 0 {
+		if len(*flDomain) == 0 {
 			log.Fatal("Domain is required")
 		}
 
-		validUrl, err := utils.IsValidUrl(flDomain)
+		validUrl, err := utils.IsValidUrl(*flDomain)
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		if validUrl == false {
-			log.Fatalf("Invalid base URL [%v]", flDomain)
+			log.Fatalf("Invalid base URL [%v]", *flDomain)
 		}
 	}()
 
-	db, err := bolt.Open(flDb, 0600, nil)
+	db, err := bolt.Open(*flDb, 0600, nil)
 
 	if err != nil {
 		log.Fatal(err)
@@ -146,7 +147,7 @@ func main() {
 
 	storage.Init(db)
 
-	domain, err := url.Parse(flDomain)
+	domain, err := url.Parse(*flDomain)
 
 	if err != nil {
 		log.Fatal(err)
@@ -156,10 +157,10 @@ func main() {
 		log.Fatalf("Domain URL [%v] is not absolute", domain.String())
 	}
 
-	keywords := strings.Split("", ",")
+	filterRegex := *flFilterRegex
 
 	log.Printf("Domain: %v", domain.String())
-	log.Printf("Keywords: %v", keywords)
+	log.Printf("Filter (regex): %v", filterRegex)
 
 	var chSize int64 = 1000
 	content := make(chan string, chSize)
@@ -177,13 +178,13 @@ func main() {
 
 	for i := 0; i < 6; i++ {
 		go crawl.Crawl(waitQueue.Uri, doneQueue.Uri, content, stop)
-		go crawl.Download(i+1, flDir, waitQueue.Img, doneQueue.Img, stop)
+		go crawl.Download(i+1, *flDir, waitQueue.Img, doneQueue.Img, stop)
 	}
 
 	go ManageQueues(db, newQueue, waitQueue)
 
 	for i := 0; i < nHarversters; i++ {
-		go crawl.Harvest(i+1, domain, keywords, content, newQueue.Uri, newQueue.Img, stop)
+		go crawl.Harvest(i+1, domain, filterRegex, content, newQueue.Uri, newQueue.Img, stop)
 	}
 
 	go func() {

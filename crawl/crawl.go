@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+import "github.com/guidj/manga-mirror/utils"
+
 func ParseElementValues(html, tag, element string) []string {
 	stf := fmt.Sprint(`<`, tag, `[^>]+`, element)
 	pattern := fmt.Sprintf(`%v\s*=\s*'(.*?)'|%v\s*=\s*"(.*?)"`, stf, stf)
@@ -28,17 +30,19 @@ func ParseElementValues(html, tag, element string) []string {
 	return values
 }
 
-//TODO: keywords filtering
-func MakeURIParser(tag, element string, domain *url.URL) func(html string) []*url.URL {
+func MakeURIParser(tag, element string, domain *url.URL, filterPattern string) func(html string) []*url.URL {
+
+	matchFilter := utils.MakeRegexMatcher(filterPattern)
+
 	return func(html string) []*url.URL {
 
 		paths := ParseElementValues(html, tag, element)
-		urls := make([]*url.URL, len(paths))
+		urls := []*url.URL{}
 
 		var uri *url.URL
 		var err error
 
-		for i, path := range paths {
+		for _, path := range paths {
 			uri, err = url.Parse(path)
 
 			if err != nil {
@@ -46,10 +50,12 @@ func MakeURIParser(tag, element string, domain *url.URL) func(html string) []*ur
 				continue
 			}
 
-			if uri.IsAbs() {
-				urls[i] = uri
-			} else {
-				urls[i] = domain.ResolveReference(uri)
+			if !uri.IsAbs() {
+				uri = domain.ResolveReference(uri)
+			}
+
+			if matchFilter(uri.String()) {
+				urls = append(urls, uri)
 			}
 		}
 
@@ -78,13 +84,13 @@ func ParseContent(u *url.URL) (string, error) {
 }
 
 //Harvest extracts URI of images and other URLs form an html string
-func Harvest(id int, domain *url.URL, keywords []string, content <-chan string, urlQueue, imageQueue chan<- *url.URL, stop <-chan int) {
+func Harvest(id int, domain *url.URL, filterPattern string, content <-chan string, urlQueue, imageQueue chan<- *url.URL, stop <-chan int) {
 
 	var mURLs []*url.URL
 	var mImages []*url.URL
 
-	var mParseURLs = MakeURIParser("a", "href", domain)
-	var mParseImages = MakeURIParser("img", "src", domain)
+	var mParseURLs = MakeURIParser("a", "href", domain, filterPattern)
+	var mParseImages = MakeURIParser("img", "src", domain, filterPattern)
 
 	var c string
 

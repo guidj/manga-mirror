@@ -1,7 +1,8 @@
 .project
-mangamirror
+manga-mirror
 
 bin/
-media/
+_media/
+_mgreaderdb
 .*
 *.log
