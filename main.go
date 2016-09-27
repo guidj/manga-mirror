@@ -14,20 +14,20 @@ import "github.com/guidj/manga-mirror/crawl"
 import "github.com/guidj/manga-mirror/utils"
 
 type crawlCounter struct {
-	//imageIn  int64
-	//urlIn    int64
-	//imageOut int64
-	//urlOut   int64
+	//imageIn  int
+	//urlIn    int
+	//imageOut int
+	//urlOut   int
 }
 
 type CrawlerQueue struct {
 	Uri chan *url.URL
 	Img chan *url.URL
-	//	uri int64 <- lock issues. better to have a channel to receive a counter and increment or decrement it with a lock? atomic counters vs mutexes
+	//	uri int <- lock issues. better to have a channel to receive a counter and increment or decrement it with a lock? atomic counters vs mutexes
 }
 
 //NewCrawlerQueue creates and returns an instance of a CrawlerQueue
-func NewCrawlerQueue(size int64) (cq *CrawlerQueue) {
+func NewCrawlerQueue(size int) (cq *CrawlerQueue) {
 	cq = new(CrawlerQueue)
 	cq.Uri = make(chan *url.URL, size)
 	cq.Img = make(chan *url.URL, size)
@@ -178,7 +178,7 @@ func main() {
 	log.Printf("Domain: %v", domain.String())
 	log.Printf("Filter (regex): %v", filterRegex)
 
-	var chSize int64 = 1000
+	var chSize int = 1000
 	content := make(chan string, chSize)
 	newQueue, waitQueue, doneQueue := NewCrawlerQueue(chSize), NewCrawlerQueue(chSize), NewCrawlerQueue(chSize)
 
