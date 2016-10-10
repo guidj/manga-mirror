@@ -20,8 +20,9 @@ type crawlCounter struct {
 	//urlOut   int
 }
 
+//CrawlerQueue holds a URI queue and an Image queue
 type CrawlerQueue struct {
-	Uri chan *url.URL
+	URI chan *url.URL
 	Img chan *url.URL
 	//	uri int <- lock issues. better to have a channel to receive a counter and increment or decrement it with a lock? atomic counters vs mutexes
 }
@@ -29,7 +30,7 @@ type CrawlerQueue struct {
 //NewCrawlerQueue creates and returns an instance of a CrawlerQueue
 func NewCrawlerQueue(size int) (cq *CrawlerQueue) {
 	cq = new(CrawlerQueue)
-	cq.Uri = make(chan *url.URL, size)
+	cq.URI = make(chan *url.URL, size)
 	cq.Img = make(chan *url.URL, size)
 	return
 }
@@ -43,7 +44,7 @@ func ManageQueues(db *bolt.DB, newQueue, waitQueue *CrawlerQueue) {
 	for {
 
 		select {
-		case uri = <-newQueue.Uri:
+		case uri = <-newQueue.URI:
 			val, err := storage.Get(db, uri.String())
 			if err != nil {
 				panic(err)
@@ -52,7 +53,7 @@ func ManageQueues(db *bolt.DB, newQueue, waitQueue *CrawlerQueue) {
 			if val == "" {
 				//log.Printf("Trying to add [%v] to crawl queue", uri.String())
 				storage.Save(db, uri.String(), "INQ")
-				waitQueue.Uri <- uri
+				waitQueue.URI <- uri
 				log.Printf("Added [%v] to crawl queue", uri.String())
 				//c.urlIn += 1
 			}
@@ -87,7 +88,7 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 	var img *url.URL
 	for {
 		select {
-		case uri = <-doneQueue.Uri:
+		case uri = <-doneQueue.URI:
 
 			err := storage.Save(db, uri.String(), "DONE")
 
@@ -116,43 +117,41 @@ func OperateNotifier(db *bolt.DB, doneQueue *CrawlerQueue) {
 
 func main() {
 
-	f, err := os.OpenFile("mgreader.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("Error opening file: %v", err)
-	}
-
-	defer f.Close()
-
-	log.SetOutput(f)
-	log.Println("Initianting...")
-
-	var flDir = flag.String("directory", "_media", "Path to store downlaoded media")
-	var flDb = flag.String("database", "_mrdb", "Path for crawler sync index")
-	var flDomain = flag.String("domain", "", "Web URL to crawl for media")
-	var flFilterRegex = flag.String("filter-regex", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
+	var flDir = flag.String("dir", "_media", "Path to store downlaoded media")
+	var flDb = flag.String("db", "_mrdb", "Path for crawler sync index")
+	var flDomain = flag.String("url", "", "Web URL to crawl for media")
+	var flFilterRegex = flag.String("filter", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
+	var flLogFile = flag.String("log", "", "Log file. Defaults to outputting to STDOUT")
 
 	func() {
-		flag.StringVar(flDir, "dir", "_media", "Path to store downloaded media")
-		flag.StringVar(flDb, "db", "_mgreaderdb", "Path for crawler sync index")
-		flag.StringVar(flDomain, "url", "", "Web URL to crawl for media")
-		flag.StringVar(flFilterRegex, "f", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
 
 		flag.Parse()
 
-		if len(*flDomain) == 0 {
+		if *flDomain == "" {
 			log.Fatal("Domain is required")
 		}
 
-		validUrl, err := utils.IsValidUrl(*flDomain)
+		validURL, err := utils.IsValidUrl(*flDomain)
 
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if validUrl == false {
+		if validURL == false {
 			log.Fatalf("Invalid base URL [%v]", *flDomain)
 		}
 	}()
+
+	if *flLogFile != "" {
+		f, err := os.OpenFile(*flLogFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("Error opening file: %v", err)
+		}
+		log.SetOutput(f)
+		defer f.Close()
+	}
+
+	log.Println("Initianting...")
 
 	db, err := bolt.Open(*flDb, 0600, nil)
 
@@ -178,7 +177,7 @@ func main() {
 	log.Printf("Domain: %v", domain.String())
 	log.Printf("Filter (regex): %v", filterRegex)
 
-	var chSize int = 1000
+	chSize := 1000
 	content := make(chan string, chSize)
 	newQueue, waitQueue, doneQueue := NewCrawlerQueue(chSize), NewCrawlerQueue(chSize), NewCrawlerQueue(chSize)
 
@@ -187,13 +186,12 @@ func main() {
 
 	stop := make(chan int, nWorkers)
 
-	//c := new(crawlCounter)
 	ticker := time.NewTicker(time.Millisecond * 5000)
 
-	newQueue.Uri <- domain
+	newQueue.URI <- domain
 
 	for i := 0; i < nCrawlers; i++ {
-		go crawl.Crawl(i+1, waitQueue.Uri, doneQueue.Uri, content, stop)
+		go crawl.Crawl(i+1, waitQueue.URI, doneQueue.URI, content, stop)
 	}
 
 	for i := 0; i < nDownloaders; i++ {
@@ -203,7 +201,7 @@ func main() {
 	go ManageQueues(db, newQueue, waitQueue)
 
 	for i := 0; i < nHarversters; i++ {
-		go crawl.Harvest(i+1, domain, filterRegex, content, newQueue.Uri, newQueue.Img, stop)
+		go crawl.Harvest(i+1, domain, filterRegex, content, newQueue.URI, newQueue.Img, stop)
 	}
 
 	go func() {
