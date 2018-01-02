@@ -1,14 +1,38 @@
 package storage
 
 import (
+	"log"
+
 	"github.com/boltdb/bolt"
 )
 
-const DB_BUCKET = "mngrdr"
+const dbBucket = "mngrdr"
 
-func Init(db *bolt.DB) {
-	db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(DB_BUCKET))
+// KeyStore is an wrapper for a Key-Value data store.
+type KeyStore struct {
+	path string
+	db   *bolt.DB
+}
+
+// NewKeyStore creates an instance of KeyStore for a given path.
+func NewKeyStore(path string) *KeyStore {
+	ks := new(KeyStore)
+	ks.path = path
+
+	return ks
+}
+
+// Init creates the physical storage files and bucket in the data store.
+func (ks *KeyStore) Init(path string) {
+	var err error
+	ks.db, err = bolt.Open(ks.path, 0600, nil)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ks.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(dbBucket))
 		if err != nil {
 			panic(err)
 		}
@@ -17,12 +41,15 @@ func Init(db *bolt.DB) {
 	})
 }
 
-//TODO: accept value
-//Save stores a key in the data store, with the current Unix timestamp
-func Save(db *bolt.DB, key string, value string) (err error) {
+// Close closes data store.
+func (ks *KeyStore) Close() {
+	ks.db.Close()
+}
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(DB_BUCKET))
+// Save stores a key value pair in the data store.
+func (ks *KeyStore) Save(key string, value string) (err error) {
+	err = ks.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(dbBucket))
 		err := b.Put([]byte(key), []byte(value))
 		return err
 	})
@@ -30,11 +57,11 @@ func Save(db *bolt.DB, key string, value string) (err error) {
 	return
 }
 
-//Get reads an item from the data store
-func Get(db *bolt.DB, key string) (value string, err error) {
+// Get reads a key from the data store.
+func (ks *KeyStore) Get(key string) (value string, err error) {
 
-	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(DB_BUCKET))
+	err = ks.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(dbBucket))
 		value = string(b.Get([]byte(key)))
 
 		return nil
@@ -43,11 +70,11 @@ func Get(db *bolt.DB, key string) (value string, err error) {
 	return
 }
 
-//Exists check if a key is present in the data store
-func Exists(db *bolt.DB, key string) (exists bool, err error) {
+// Exists check if a key is present in the data store.
+func (ks *KeyStore) Exists(key string) (exists bool, err error) {
 
-	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(DB_BUCKET))
+	err = ks.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(dbBucket))
 		v := b.Get([]byte(key))
 
 		exists = (v != nil)

@@ -4,8 +4,8 @@ import (
 	"regexp"
 )
 
-//IsValidUrl checks if a string is a valid URL
-func IsValidUrl(url string) (valid bool, err error) {
+// IsValidURL checks if a string is a valid URL.
+func IsValidURL(url string) (valid bool, err error) {
 
 	pattern := "(@)?(href=')?(HREF=')?(HREF=\")?(href=\")?(http[s]?://)?[a-zA-Z_0-9\\-]+(\\.\\w[a-zA-Z_0-9\\-]+)+(/[#&\\n\\-=?\\+\\%/\\.\\w]+)?"
 
@@ -14,6 +14,7 @@ func IsValidUrl(url string) (valid bool, err error) {
 	return
 }
 
+// MakeRegexMatcher returns a function to check if any string matches the given regex.
 func MakeRegexMatcher(regex string) func(text string) bool {
 	re := regexp.MustCompile(regex)
 

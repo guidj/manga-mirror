@@ -1,9 +1,9 @@
 
-all: mangamirror
+all: manga-mirror
 
 clean:
-	rm -rf bin/
+	rm -rf ${GOPATH}/bin/manga-mirror
 
-mangamirror: main.go utils/*.go
-	mkdir -p bin
-	go build -o bin/manga-mirror main.go
+manga-mirror: main.go utils/*.go
+	gofmt -w .
+	go build -race -o ${GOPATH}/bin/manga-mirror main.go

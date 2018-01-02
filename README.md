@@ -1,7 +1,15 @@
 Manga-Mirror
 ==============
 
-mangareader.net crawler
+[mangareader.net](http://www.mangareader.net/) crawler.
+
+Build
+----------
+```
+$ make
+```
+
+It builds an executable under `$GOPATH/bin/` named `manga-mirror`.
 
 
 Usage
@@ -24,5 +32,5 @@ Parameters:
 
 
 ```
-./bin/manga-mirror -url [some-manga-url] -filter [some-regex-pattern]
+$ manga-mirror -url [some-manga-url] -filter [some-regex-pattern]
 ```
