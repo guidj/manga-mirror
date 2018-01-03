@@ -2,11 +2,8 @@ package crawl
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -68,25 +65,6 @@ func MakeURIParser(tag, element string, domain *url.URL, filterPattern string) f
 
 //TODO: is it better to pass data in channels by copying (less memory sharing)? (applies to domain as well)
 
-//RetrieveContent retrives content from a URI, and returns it as a string.
-func RetrieveContent(u *url.URL) (string, error) {
-
-	resp, err := http.Get(u.String())
-
-	if err != nil {
-		log.Println(err)
-
-		return string(""), err
-	}
-
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-
-	content := string(body)
-
-	return content, err
-}
-
 // Harvest extracts URIs from `anchor` (a) and `image` (img) tags in an HTML string, from htlm strings from a `content` channel
 // `domain` is used to resolve the full URL of relative URLs
 func Harvest(id int, domain *url.URL, filterPattern string, content <-chan string, sites, images chan<- *url.URL) {
@@ -134,10 +112,11 @@ func Harvest(id int, domain *url.URL, filterPattern string, content <-chan strin
 }
 
 // Crawl parses URLs from a `waiting` channel, places the content in a `content` channel, and places the URL on an `processed` channel.
-func Crawl(id int, waiting <-chan *url.URL, processed chan<- *url.URL, content chan<- string) {
+func Crawl(id int, userAgent string, waiting <-chan *url.URL, processed chan<- *url.URL, content chan<- string) {
 
 	var u *url.URL
 	var open bool
+	var httpClient = utils.NewHttpClient(userAgent)
 
 	for {
 		select {
@@ -145,7 +124,7 @@ func Crawl(id int, waiting <-chan *url.URL, processed chan<- *url.URL, content c
 
 			if open {
 
-				c, err := RetrieveContent(u)
+				c, err := httpClient.RetrieveContent(u.String())
 
 				log.Printf("Crawl Worker-[%v] parsed content for [%v]", id, u.String())
 
@@ -171,12 +150,13 @@ func Crawl(id int, waiting <-chan *url.URL, processed chan<- *url.URL, content c
 }
 
 // Download downloads resources from URIs in a `waiting` channel and URI to a given `dir` and puts the URI in a `processed` channel
-func Download(id int, dir string, wainting <-chan *url.URL, processed chan<- *url.URL) {
+func Download(id int, userAgent string, dir string, wainting <-chan *url.URL, processed chan<- *url.URL) {
 
 	log.Printf("Download Worker-[%v] entering loop", id)
 
 	var i *url.URL
 	var open bool
+	var httpClient = utils.NewHttpClient(userAgent)
 
 	for {
 		select {
@@ -186,35 +166,16 @@ func Download(id int, dir string, wainting <-chan *url.URL, processed chan<- *ur
 
 				//TODO: get data dir as a param from user running program
 				filePath := path.Join(dir, i.Path)
-				baseDir := path.Dir(filePath)
 
-				if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-					os.MkdirAll(baseDir, 0755)
-				}
-
-				resp, err := http.Get(i.String())
+				err := httpClient.Download(i.String(), filePath)
 
 				if err != nil {
 					log.Println(err)
-				} else {
-
-					func() {
-						defer resp.Body.Close()
-
-						body, err := ioutil.ReadAll(resp.Body)
-
-						ioutil.WriteFile(filePath, body, 0755)
-
-						if err != nil {
-							log.Println(err)
-						} else {
-							log.Printf("Downloader [%v] downlaoded %v, to %v", id, i.String(), filePath)
-						}
-					}()
-
-					//TODO: add to failure list/queue
-					processed <- i
 				}
+
+				//TODO: add to failure list/queue
+				processed <- i
+
 			} else {
 
 				log.Printf("Download Worker-[%v] is exiting", id)

@@ -27,10 +27,18 @@ Parameters:
     	Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'
   -log [string]
     	log file name, for logging (default STDOUT)
-
+  -user-agent string
+    	UserAgent for HTTP HEADER (default "mng-rdr")
 ```
 
 
 ```
 $ manga-mirror -url [some-manga-url] -filter [some-regex-pattern]
 ```
+
+
+Misc
+-----------
+
+This crawler can be used to crawl other sites, and download images. Though it is ever hardly used or nested at that task.
+Note that this crawler respects `robots.txt` configurations on which paths can be crawled, but not on the crawling interval.

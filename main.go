@@ -8,6 +8,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/temoto/robotstxt"
+
 	"github.com/guidj/manga-mirror/crawl"
 	"github.com/guidj/manga-mirror/storage"
 	"github.com/guidj/manga-mirror/utils"
@@ -29,22 +31,47 @@ func NewCrawlerQueue(size int) (cq *CrawlerQueue) {
 }
 
 // ManageQueues handles flow of data between `purgatory` and `waiting` CrawlerQueues
-func ManageQueues(db *storage.KeyStore, purgatory, waiting *CrawlerQueue) {
+func ManageQueues(db *storage.KeyStore, userAgent string, domain *url.URL, purgatory, waiting *CrawlerQueue) {
 
 	var uri *url.URL
 	var img *url.URL
+	var robots *robotstxt.RobotsData
+	var robotsGroup *robotstxt.Group
+
+	httpClient := utils.NewHttpClient(userAgent)
+
+	robotsUrl, err := url.Parse(domain.String())
+	robotsUrl.Path = path.Join(domain.Path, "robots.txt")
+
+	robotsText, err := httpClient.RetrieveContent(robotsUrl.String())
+
+	if err != nil {
+		log.Printf("Couldn't retrieve robots.txt from [%v] Falling back to all access mode.", robotsUrl.String())
+		robots, _ = robotstxt.FromString("User-agent: *\nAllow: /")
+
+	} else {
+		robots, err = robotstxt.FromString(robotsText)
+
+		if err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+	robotsGroup = robots.FindGroup(userAgent)
 
 	for {
 
 		select {
 		case uri = <-purgatory.Sites:
 			val, err := db.Get(uri.String())
+
 			if err != nil {
 				panic(err)
 			}
 
-			if val == "" {
-				//log.Printf("Trying to add [%v] to crawl queue", uri.String())
+			if robotsGroup.Test(uri.String()) == false {
+				log.Printf("Skipping site [%v]. It's forbidden by robots.txt", uri.String())
+			} else if val == "" {
 				db.Save(uri.String(), "INQ")
 				waiting.Sites <- uri
 				log.Printf("Added site [%v] to waiting queue", uri.String())
@@ -54,11 +81,14 @@ func ManageQueues(db *storage.KeyStore, purgatory, waiting *CrawlerQueue) {
 		case img = <-purgatory.Images:
 
 			val, err := db.Get(img.String())
+
 			if err != nil {
 				panic(err)
 			}
 
-			if val == "" {
+			if robotsGroup.Test(uri.String()) == false {
+				log.Printf("Skipping image [%v]. It's forbidden by robots.txt", uri.String())
+			} else if val == "" {
 				db.Save(img.String(), "INQ")
 				waiting.Images <- img
 				log.Printf("Added image [%v] to waiting queue", img.String())
@@ -106,6 +136,7 @@ func main() {
 	var flDomain = flag.String("url", "", "Web URL to crawl for media")
 	var flFilterRegex = flag.String("filter", "", "Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'")
 	var flLogFile = flag.String("log", "", "Log file. Defaults to outputting to STDOUT")
+	var flUserAgent = flag.String("user-agent", "mng-rdr", "UserAgent for HTTP HEADER")
 
 	func() {
 
@@ -175,14 +206,14 @@ func main() {
 	purgatory.Sites <- domain
 
 	for i := 0; i < nCrawlers; i++ {
-		go crawl.Crawl(i+1, waiting.Sites, processed.Sites, content)
+		go crawl.Crawl(i+1, *flUserAgent, waiting.Sites, processed.Sites, content)
 	}
 
 	for i := 0; i < nDownloaders; i++ {
-		go crawl.Download(i+1, *flDir, waiting.Images, processed.Images)
+		go crawl.Download(i+1, *flUserAgent, *flDir, waiting.Images, processed.Images)
 	}
 
-	go ManageQueues(db, purgatory, waiting)
+	go ManageQueues(db, *flUserAgent, domain, purgatory, waiting)
 
 	for i := 0; i < nHarversters; i++ {
 		go crawl.Harvest(i+1, domain, filterRegex, content, purgatory.Sites, purgatory.Images)
