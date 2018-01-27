@@ -40,5 +40,5 @@ $ manga-mirror -url [some-manga-url] -filter [some-regex-pattern]
 Misc
 -----------
 
-This crawler can be used to crawl other sites, and download images. Though it is ever hardly used or nested at that task.
+This crawler can be used to crawl other sites, and download images. Though it is ever hardly used or tested at that task.
 Note that this crawler respects `robots.txt` configurations on which paths can be crawled, but not on the crawling interval.
