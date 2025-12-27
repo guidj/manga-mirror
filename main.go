@@ -33,14 +33,11 @@ func NewCrawlerQueue(size int) (cq *CrawlerQueue) {
 
 // ManageQueues handles flow of data between `purgatory` and `waiting` CrawlerQueues
 func ManageQueues(db *storage.KeyStore, userAgent string, domain *url.URL, purgatory, waiting *CrawlerQueue) {
-
 	var uri *url.URL
 	var img *url.URL
 	var robots *robotstxt.RobotsData
 	var robotsGroup *robotstxt.Group
-
 	httpClient := utils.NewHttpClient(userAgent)
-
 	robotsUrl, err := url.Parse(domain.String())
 	robotsUrl.Path = path.Join(domain.Path, "robots.txt")
 	robotsText, err := httpClient.RetrieveContent(robotsUrl.String())
@@ -90,11 +87,9 @@ func ManageQueues(db *storage.KeyStore, userAgent string, domain *url.URL, purga
 
 // OperateNotifier tracks processed URL (for images and pages) and saves them to the index (storage)
 func OperateNotifier(db *storage.KeyStore, processed *CrawlerQueue) {
-
 	// TODO: counters?
 	var uri *url.URL
 	var img *url.URL
-
 	for {
 		select {
 		case uri = <-processed.Sites:
@@ -173,22 +168,22 @@ func main() {
 
 	chanBufferSize := 1000
 	content := make(chan string, chanBufferSize)
-	purgatory, waiting, processed := NewCrawlerQueue(chanBufferSize), NewCrawlerQueue(chanBufferSize), NewCrawlerQueue(chanBufferSize)
+	pendingQeueue, processQueue, completedQueue := NewCrawlerQueue(chanBufferSize), NewCrawlerQueue(chanBufferSize), NewCrawlerQueue(chanBufferSize)
 	nCrawlers, nDownloaders, nHarversters := 6, 6, 3
 	ticker := time.NewTicker(time.Millisecond * 5000)
-	purgatory.Sites <- domain
+	pendingQeueue.Sites <- domain
 	// Spin up crawlers
-	for i := 0; i < nCrawlers; i++ {
-		go crawl.Crawl(i+1, *flUserAgent, waiting.Sites, processed.Sites, content)
+	for i := range nCrawlers {
+		go crawl.Crawl(i+1, *flUserAgent, processQueue.Sites, completedQueue.Sites, content)
 	}
 	// Spin up downloaders
-	for i := 0; i < nDownloaders; i++ {
-		go crawl.Download(i+1, *flUserAgent, *flDir, waiting.Images, processed.Images)
+	for i := range nDownloaders {
+		go crawl.Download(i+1, *flUserAgent, *flDir, processQueue.Images, completedQueue.Images)
 	}
-	go ManageQueues(db, *flUserAgent, domain, purgatory, waiting)
+	go ManageQueues(db, *flUserAgent, domain, pendingQeueue, processQueue)
 	// Spin up data harversters
-	for i := 0; i < nHarversters; i++ {
-		go crawl.Harvest(i+1, domain, filterRegex, content, purgatory.Sites, purgatory.Images)
+	for i := range nHarversters {
+		go crawl.Harvest(i+1, domain, filterRegex, content, pendingQeueue.Sites, pendingQeueue.Images)
 	}
 	go func() {
 		for t := range ticker.C {
@@ -197,7 +192,7 @@ func main() {
 		}
 	}()
 
-	OperateNotifier(db, processed)
+	OperateNotifier(db, completedQueue)
 }
 
 // TODO: close channels, and end workers when exit/stop SIG is received
