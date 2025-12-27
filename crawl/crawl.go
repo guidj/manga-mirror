@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
-)
 
-import "github.com/guidj/manga-mirror/utils"
+	"github.com/guidj/manga-mirror/utils"
+)
 
 // ParseHTMLElementValues parses a specified html `element` with a specified `tag`.
 func ParseHTMLElementValues(html, tag, element string) []string {
@@ -44,16 +44,13 @@ func MakeURIParser(tag, element string, domain *url.URL, filterPattern string) f
 
 		for _, path := range paths {
 			uri, err = url.Parse(path)
-
 			if err != nil {
 				log.Printf("Invalid url path: %v", path)
 				continue
 			}
-
 			if !uri.IsAbs() {
 				uri = domain.ResolveReference(uri)
 			}
-
 			if matchFilter(uri.String()) {
 				urls = append(urls, uri)
 			}
@@ -121,13 +118,9 @@ func Crawl(id int, userAgent string, waiting <-chan *url.URL, processed chan<- *
 	for {
 		select {
 		case u, open = <-waiting:
-
 			if open {
-
 				c, err := httpClient.RetrieveContent(u.String())
-
 				log.Printf("Crawl Worker-[%v] parsed content for [%v]", id, u.String())
-
 				//TODO: deal with failed crawls, e.g. log with special value in key-store
 				if err != nil {
 					log.Println(err)
@@ -161,23 +154,16 @@ func Download(id int, userAgent string, dir string, wainting <-chan *url.URL, pr
 	for {
 		select {
 		case i, open = <-wainting:
-
 			if open {
-
 				//TODO: get data dir as a param from user running program
 				filePath := path.Join(dir, i.Path)
-
 				err := httpClient.Download(i.String(), filePath)
-
 				if err != nil {
 					log.Println(err)
 				}
-
 				//TODO: add to failure list/queue
 				processed <- i
-
 			} else {
-
 				log.Printf("Download Worker-[%v] is exiting", id)
 				break
 			}
