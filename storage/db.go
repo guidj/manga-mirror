@@ -38,37 +38,38 @@ func (ks *KeyStore) Init() {
 }
 
 // Close closes data store.
-func (ks *KeyStore) Close() {
-	ks.db.Close()
+func (ks *KeyStore) Close() error {
+	return ks.db.Close()
 }
 
 // Save stores a key value pair in the data store.
-func (ks *KeyStore) Save(key string, value string) (err error) {
-	err = ks.db.Update(func(tx *bolt.Tx) error {
+func (ks *KeyStore) Save(key string, value string) error {
+	return ks.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(dbBucket))
 		err := b.Put([]byte(key), []byte(value))
 		return err
 	})
-	return
 }
 
 // Get reads a key from the data store.
-func (ks *KeyStore) Get(key string) (value string, err error) {
-	err = ks.db.View(func(tx *bolt.Tx) error {
+func (ks *KeyStore) Get(key string) (string, error) {
+	var value string
+	err := ks.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(dbBucket))
 		value = string(b.Get([]byte(key)))
 		return nil
 	})
-	return
+	return value, err
 }
 
 // Exists check if a key is present in the data store.
-func (ks *KeyStore) Exists(key string) (exists bool, err error) {
-	err = ks.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(dbBucket))
-		v := b.Get([]byte(key))
-		exists = (v != nil)
+func (ks *KeyStore) Exists(key string) (bool, error) {
+	var exists bool
+	err := ks.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(dbBucket))
+		value := bucket.Get([]byte(key))
+		exists = (value != nil)
 		return nil
 	})
-	return
+	return exists, err
 }

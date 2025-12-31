@@ -19,10 +19,9 @@ func NewHttpClient(userAgent string) *HttpClient {
 }
 
 // RetrieveContent makes an Http GET request and returns a string of the content
-func (httpClient *HttpClient) RetrieveContent(url string) (content string, err error) {
-	var req *http.Request
+func (httpClient *HttpClient) RetrieveContent(url string) (string, error) {
 	var resp *http.Response
-	req, err = http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return string(""), err
 	}
