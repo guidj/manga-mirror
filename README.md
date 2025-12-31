@@ -1,7 +1,7 @@
 Manga-Mirror
 ==============
 
-[mangareader.net](http://www.mangareader.net/) crawler.
+A manga crawler.
 
 Build
 ----------
@@ -24,7 +24,7 @@ Parameters:
   -url [string]
     	Web URL to crawl for media
   -filter [string]
-    	Regex pattern to filter URIs, e.g. 'mangareader.net|naruto'
+    	Regex pattern to filter URIs, e.g. 'website|keyword'
   -log [string]
     	log file name, for logging (default STDOUT)
   -user-agent string
@@ -33,7 +33,7 @@ Parameters:
 
 
 ```
-$ manga-mirror -url [some-manga-url] -filter [some-regex-pattern]
+$ manga-mirror --url [some-manga-url] --filter [some-regex-pattern]
 ```
 
 
