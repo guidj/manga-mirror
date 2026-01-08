@@ -2,8 +2,11 @@
 all: manga-mirror
 
 clean:
-	rm -rf ${GOPATH}/bin/manga-mirror
+	rm -rf $$HOME/go/bin/manga-mirror
 
 manga-mirror: main.go utils/*.go
 	gofmt -w .
-	go build -race -o ${GOPATH}/bin/manga-mirror main.go
+	go build -race -o $$HOME/go/bin/manga-mirror main.go
+
+deps:
+	go mod tidy
